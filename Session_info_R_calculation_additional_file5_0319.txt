@@ -1,0 +1,21 @@
+R version 3.4.0 (2017-04-21)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 7 x64 (build 7601) Service Pack 1
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_United Kingdom.1252  LC_CTYPE=English_United Kingdom.1252   
+[3] LC_MONETARY=English_United Kingdom.1252 LC_NUMERIC=C                           
+[5] LC_TIME=English_United Kingdom.1252    
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+[1] marray_1.54.0   limma_3.32.10   gplots_3.0.1    vegan_2.4-3     lattice_0.20-35 permute_0.9-4  
+
+loaded via a namespace (and not attached):
+ [1] gtools_3.8.1       bitops_1.0-6       MASS_7.3-47        grid_3.4.0         nlme_3.1-131       KernSmooth_2.23-15
+ [7] gdata_2.18.0       Matrix_1.2-10      tools_3.4.0        parallel_3.4.0     compiler_3.4.0     cluster_2.0.6     
+[13] caTools_1.17.1.1   mgcv_1.8-17   
