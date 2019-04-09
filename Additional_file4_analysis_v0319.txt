@@ -1,0 +1,246 @@
+2000_R1.fastq.bz2
+2000_R2.fastq.bz2
+2001_R1.fastq.bz2
+2001_R2.fastq.bz2
+2002_R1.fastq.bz2
+2002_R2.fastq.bz2
+2006_R1.fastq.bz2
+2006_R2.fastq.bz2
+2007_R1.fastq.bz2
+2007_R2.fastq.bz2
+2009_R1.fastq.bz2
+2009_R2.fastq.bz2
+2011_R1.fastq.bz2
+2011_R2.fastq.bz2
+2012_R1.fastq.bz2
+2012_R2.fastq.bz2
+2013_R1.fastq.bz2
+2013_R2.fastq.bz2
+2023_R1.fastq.bz2
+2023_R2.fastq.bz2
+2024_R1.fastq.bz2
+2024_R2.fastq.bz2
+2025_R1.fastq.bz2
+2025_R2.fastq.bz2
+
+###Davide Bulgarelli data
+###These fastq files are paired-end reads obtained from 6 biological samples that have been sequenced on HiSeq3000 (2 x 150 bases)
+
+#Unzip
+
+nohup bunzip2 *.bz2 &
+
+#Raw read number
+
+for i in *.fastq; do echo $i; grep "@" $i | wc -l; done > raw_reads
+
+#Trim illumina adapter, remove bases with bad quality (Qscore < 25) and keep only sequences >100 bases and 1 ambiguity max.
+
+nohup sh -c 'for i in `cat group`; do cutadapt -a AGATCGGAAGAGC -A AGATCGGAAGAGC -o $i".cut.R1.fq" -p $i".cut.R2.fq" -m 100 --max-n=1 -q 25 $i"_R1.fastq" $i"_R2.fastq"; done' &
+
+#Trimmed read number
+
+for i in *.fastq; do echo $i; grep "@" $i | wc -l; done > cut_reads
+
+##Removing barley sequences
+#First you have to create the Bowtie database from the fasta with all the genome sequences called Barley.fas
+
+bowtie2-build barley_morex_pseudomolecules_redundancy_masked.fasta.part Barley
+
+#Use bowtie to remove these reads with the file "group"
+
+nohup sh -c 'for i in `cat group`; do bowtie2 -x ~/DBulgarelli/Rawdata/Barley -q -1 ~/DBulgarelli/Rawdata/$i".cut.R1.fq" -2 ~/DBulgarelli/Rawdata/$i".cut.R2.fq" --very-fast --un-conc ~/DBulgarelli/clean/$i".bowtie.fq" -t -p 8 -S ~/DBulgarelli/clean/out.sam; done > bowtie.out' &
+
+#Clean read number
+
+for i in *.fq; do echo $i; grep "@" $i | wc -l; done > clean_reads
+
+#Convert fastq to fasta (keep ambiguities in sequences)
+for i in *.fq; do fastq_to_fasta -i $i -o $i.fa -Q 33 -n; done
+
+#Interleave file
+
+nohup sh -c 'for i in `cat group`; do python /home/scripts/python/interleave-fasta.py $i".bowtie.1.fq.fa" $i".bowtie.2.fq.fa" > $i".inter.fa"; done  > inter.out' &
+
+#IDBA assambly (24/09/2018/ at 11:25)
+
+nohup sh -c 'for i in `cat group`; do idba_ud -o ~/DBulgarelli/assembly/$i -r ~/DBulgarelli/test/$i".inter.fa" --num_threads 15 --mink 40 --step 20 --min_contig 500 --no_bubble > idba.out 2> idba.err; done > idba.out' &
+
+#Assembly for sample 2007 did not work with
+
+nohup idba_ud -o ~/DBulgarelli/assembly/2007 -r ~/DBulgarelli/test/2007.inter.fa --num_threads 15 --mink 30 --maxk 90 --step 20 --min_contig 500 --no_bubble > idba.out 2> idba.err &
+#did not work, I tried again with less kmer
+nohup idba_ud -o ~/DBulgarelli/assembly/200730 -r ~/DBulgarelli/test/2007.inter.fa --num_threads 15 --mink 30 --maxk 70 --step 20 --min_contig 500 --no_bubble > idba.out 2> idba.err &
+#Finally worked out with maxkmer 70
+
+#Check statistics
+
+lipm_N50.pl -in *.contig.fa > statistics
+
+#Change headers
+
+for i in *.contig.fa; do sed -i 's/contig/2000/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2001/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2002/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2006/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2007/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2009/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2011/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2012/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2013/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2023/g' $i; done
+for i in *.contig.fa; do sed -i 's/contig/2024/g' $i; done
+
+#Place all  together in the same file (all.contigs)
+
+cat *.contig.fa > all.contigs
+
+#Mapping
+
+nohup bowtie2-build all.contigs all.contigs
+
+nohup sh -c 'for i in `cat group`; do bowtie2 -x ~/DBulgarelli/assembly/all.contigs  -q -1 ~/DBulgarelli/Rawdata/$i".cut.R1.fq" -2 ~/DBulgarelli/Rawdata/$i".cut.R2.fq" --very-fast -t -p 15 -S ~/DBulgarelli/assembly/$i".sam"; done > bowtiebean.out' &
+
+#Convert .sam in .bam format
+nohup sh -c 'for i in *.sam; do samtools view -b -S -o $i.bam $i; done' &
+
+#Sort bam files
+
+nohup sh -c 'for i in *.bam ; do samtools sort -@ 10 $i $i.sorted; done' &
+
+nohup sh -c 'for i in *.sorted.bam ; do samtools index $i; done' &
+
+#To generate coverage file for MetaBAT
+
+nohup jgi_summarize_bam_contig_depths --outputDepth depth.txt *.sorted.bam &
+
+#To Launch MetaBAT with high specificity
+
+nohup sh -c "metabat -i all.contigs.f -a depth.txt -o metabat_bulgarelli --superspecific -t 10 -v" >>metabat2.out 2>metabat2.err 0</dev/null &
+
+#To launch CheckM on MetaBAT results
+
+nohup sh -c "time checkm lineage_wf -f Results/CheckM.txt -t 8 -x fa Results/ Results/SCG" >>checkm1.out 2>checkm1.err 0</dev/null &
+
+#To get bins with at least 60% completeness
+
+awk '{if ($13 >= 60){print $1}}' CheckM.txt >list2.txt
+
+#Creating links in a separate repository
+
+mkdir Comp60
+cd Comp60
+awk '{system("ln -s ../"$1".fa "$1".fa")}' ../list2.txt
+
+#Evaluating redundancy with Nucmer (you need to copy the list.txt file, that is the file with the bins with more than 60 completeness, in the Results folder). The list file should have the complete path of every bin
+
+remove_redundant_contigs_in_assemblies.pl -b list2.txt
+
+#Checkm on the reduced bin
+
+checkm lineage_wf -f checkm_nash0 -t 12 -x fa noredund/ checkm_noredund_result
+
+#Calculate N50 and other statistics in one resu file
+
+for i in *.fa; do echo $i >> resu; lipm_N50.pl --in $i >> resu; done
+
+#To get bin contigs names
+grep ">" *.fa > cont60.names
+
+#Extract first 5000 ntd of every contig in every bin
+
+for i in *.fa; do prinseq-lite.pl -fasta $i -out_format 1 -out_good $i."trimmed" -trim_to_len 5000; done
+
+#Blast of the first 5000ntd
+
+nohup sh -c 'for i in *.fa.noredund.fa.trimmed.fasta; do concat_blast_v2.sh; done > inter.out' &
+
+#Calculate coverage
+#It expects the *.bam file, and not the *.bam.bai files as input. 
+#It works with "sorted BAM file" as an input file when all three files ("BAM file + "sorted BAM file" + "sorted.bai file") are in the same folder.
+
+nohup sh -c "checkm coverage -x fa  ~/DBulgarelli/mapping_2/Results/Comp60/noredund/ coverage.tsv 2000.sam.bam.sorted.bam 2001.sam.bam.sorted.bam 2002.sam.bam.sorted.bam 2006.sam.bam.sorted.bam 2007.sam.bam.sorted.bam 2009.sam.bam.sorted.bam 2011.sam.bam.sorted.bam 2012.sam.bam.sorted.bam 2013.sam.bam.sorted.bam 2023.sam.bam.sorted.bam 2024.sam.bam.sorted.bam 2025.sam.bam.sorted.bam" >>checkmco.out 2>checkmco.err 0</dev/null &
+
+#Bar plot of bin completeness, contamination, and strain heterogeneity.
+
+checkm bin_qa_plot  ~/DBulgarelli/mapping_2/Results/Comp60/checkm_noredund_result -x fa  ~/DBulgarelli/mapping_2/Results/Comp60/ ~/DBulgarelli/Bins_binning1/plot
+
+#Remove contigs smaller than 5000 ntd
+
+for in in *.fa; do  lipm_fastafilter.pl --in $i --out $i".filter.fa --min_length 5000; done 
+
+#CheckM on the filter bins
+
+checkm lineage_wf -f checkm_5filter -t 12 -x fa filter5000ntd/ checkm_5000_result 
+
+#Check for 16S on the bins
+
+nohup sh -c "checkm ssu_finder 97_otus.fasta -x fa Bins/ sssu_finder/" >>check16S.out 2>check16S.err 0</dev/null &
+
+#####################################################################################################################################################
+#Annotation
+
+#prokka
+
+nohup sh -c 'for i in *.fa.noredund.fa; do j=$(echo $(basename $i .${i##*.})); prokka --outdir $j --prefix $j $i; done > prokka.out' &
+
+#EggNog
+
+nohup sh -c 'for i in ~/DBulgarelli/mapping_2/Bins/allproteins/*.faa; do j=$(echo $(basename $i .${i##*.})); /usr/local/src/eggnog-mapper/emapper.py --cpu 12 -i $i --output ~/DBulgarelli/mapping_2/Bins/allproteins/$j" .diamond" -m diamond; done' &
+
+#Eliminate the space
+for file in * ; do mv -T "$file" ${file// /_};done
+
+##Concatenate
+for i in *.diamond.emapper.annotations; do j=$(echo $(basename $i .${i##*.})); k=$(echo $(basename $j .${j##*.})); l=$(echo $(basename $k .${k##*.})); export l; perl -ne 'if(/^#.*/){}else{if(/(.*)/){print $ENV{l}."\t".$1."\n"}}' $i >> concat.txt; done
+
+##Chose one colum from the table
+
+awk '{print $1,$2,$7}' concat.txt > test
+
+#Table with number of COG par genome
+
+./create_liste_ech_nog_go.pl -nog concat.txt -on nb_nog_par_ech.txt -og nb_go_par_ech.txt
+
+##Transposer une matrice en ligne de commande :
+awk '{ for (f = 1; f <= NF; f++) a[NR, f] = $f } NF > nf { nf = NF } END { for (f = 1; f <= nf; f++) for (r = 1; r <= NR; r++) printf a[r, f] (r==NR ? RS : FS) }' sel_nb_nog_par_ech.txt > tsel_nb_nog_par_ech.txt
+
+
+
+##############################################################################################################################
+#Clark Classification (taxonomic assigment)
+##############################################################################################################################
+
+nohup sh -c 'for i in ~/DBulgarelli/test/*.fq; do j=$(echo $(basename $i .${i##*.})); k=$(echo $(basename $j .${j##*.})); /usr/local/src/CLARKSCV1.2.4/classify_metagenome.sh -P ~/DBulgarelli/test/$k".1.fq" ~/DBulgarelli/test/$k".2.fq" -R /home/gtorrescort/DBulgarelli/CLark/$j".taxo_genus" -n 12; done  > clark.out' &
+
+#Classified read number
+
+for i in *.csv; do echo $i; grep "NB" $i | wc -l; done > clark_reads
+
+#Remove reads that are not identified.
+for i in *.csv; do sed '/NA/d' $i > $i.2; done
+
+#Combine read 1 and read 2 files
+cat 2000.bowtie.* > 2000.csv
+cat 2001.bowtie.* > 2001.csv
+cat 2002.bowtie.* > 2002.csv
+cat 2006.bowtie.* > 2006.csv
+cat 2007.bowtie.* > 2007.csv
+cat 2009.bowtie.* > 2009.csv
+cat 2011.bowtie.* > 2011.csv
+cat 2012.bowtie.* > 2012.csv
+cat 2013.bowtie.* > 2013.csv
+cat 2023.bowtie.* > 2023.csv
+cat 2024.bowtie.* > 2024.csv
+cat 2025.bowtie.* > 2025.csv
+
+
+#Summary of the results
+ 
+nohup sh -c 'for i in ~/DBulgarelli/CLark/*.csv; do /usr/local/src/CLARKSCV1.2.4/estimate_abundance.sh -F $i -D /home/banks/clark/RefSeqDATABASE/ > $i ".resultat_affiliation.abund"; done  > class.out' &
+
+#############################################################################################################################################################################
+
+
+
+
